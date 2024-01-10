@@ -27,11 +27,13 @@ This will save a file `example.png` in the directory with a simulation run, whic
 To compile the C code, used for more heavy computations and in particular the avalanche simulations, `cd` into the `C` directory and run 
 
 ```bash
- gcc -Dnum=XX -o a.outXX code.c -lm -O2
+ gcc temporal_avalanches.c -o temporal_avalanches -lm -O2
 ```
 
-where XX is a number. This will compile the code and save the executable as `a.outXX`. You can then run the executable from the command line with 
+this will create an executable `temporal_avalanches` which you can run with
 
 ```bash
-./a.outXX
+./temporal_avalanches
 ```
+
+which will then store files called `out` (containing the time-series), `avalanches` (containing avalanche sizes), `persistence` (containing the persistence times) and `correlations` (containing the time-series autocorrelation functions) in your working directory.

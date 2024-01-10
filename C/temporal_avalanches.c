@@ -5,35 +5,48 @@
 
 // define sets of parameters:
 // rough exploration showed that the critical value of Bc is around 4.0434647
-// for a system with N nodes with K neighbours each.
+// for a system with N=10000 nodes with K=7 neighbours each (this is just for reference).
+// we simulate for a given time_depth and throw away the first throw_away time steps.
 
 #define N 10000
 #define K 7
-#define time_depth 10100000
-#define throw_away 100000
+#define time_depth 10100
+#define throw_away 100
 #define B 4.0502856
 // rough Bc 4.0434647
 
+
+// linked list structure to keep track of the persistence statistics
+// value is the persistence time (length of the avalanche)
+// mag is the magnitude of the avalanche (size of the avalanche)
+// then there is a pointer to the next avalanche statistics object
+// this is done because we don't know a priori the number of avalanches (hence why we don't use vectors)
 typedef struct persistence {
   int val;
   double mag;
   struct persistence *next;
 } persistence;
 
+
+// initialise the linked list pointers
 int count=0;
 persistence *init_ptr,*last_ptr,*tmp_ptr;
 
 void generate_time_series();
 void compute_persistence_stat();
-void persistence_stat(int a);
 void calc_corr();
 
+/**
+ * @file code.c
+ * @brief This file contains the main function.
+ * We first generate a time series of the total delay of the system.
+ * Then we compute the persistence statistics and the autocorrelation function.
+ * Finally, we compute the autocorrelation function of the time-series.
+ * Results are stored in files "persistence" (persistence statistics), "avalanche" (avalanche size statistics),
+ * "correlations" (autocorrelation function of the total delay of the system).
+ * 
+ */
 int main() {
-
-  long now;
-
-  now = time(NULL)+(long)(num);
-  srand48(now);
 
   generate_time_series();
   compute_persistence_stat();
@@ -59,12 +72,10 @@ void generate_time_series() {
   int i,j,k,l,firms[K],chosen,tf;
   double x,delay[N],shadow[N],maxdel,totdel;
   char name[100];
-  FILE *fpw1,*fpw2;
+  FILE *fpw1;
 
-  sprintf(name,"%d/out",num);
+  sprintf(name,"out");
   fpw1 = fopen(name,"w");
-  sprintf(name,"%d/out_pos",num);  
-  fpw2 = fopen(name,"w");
 
   totdel = 0.0;
   // initialise array
@@ -86,7 +97,7 @@ void generate_time_series() {
     
     for (j = 0; j < N; j++) {
       
-      // choose K random different firms
+      // choose K random different firms at random
       chosen = 0;
       while (chosen < K) {
 	if (chosen == 0) {
@@ -111,6 +122,7 @@ void generate_time_series() {
       }
 
       // max delay of the chosen firms min buffer
+      // as max(delays - B, 0)
       maxdel = shadow[firms[0]] - B;
       for (k = 1; k < K; k++)
 	if (maxdel < shadow[firms[k]] - B)
@@ -118,29 +130,31 @@ void generate_time_series() {
       if (maxdel < 0.0)
 	maxdel = 0.0;
 
-      // new delay for firm i
+      // new delay for firm j
       delay[j] = maxdel;
       x = drand48();
+      // adding exponentially distributed (Exp(1)) random noise
       delay[j] += -log(x);
 
+      // update the total delay, defined as sum_i (delay[i]-B)
       totdel += delay[j]-B;
 
     }
-
+    // save values after the burn-in period
     if (i >= throw_away) {
       fprintf(fpw1,"%12.9lf\n",totdel/((double)(N)));
-      if (totdel > 0)
-	fprintf(fpw2,"%12.9lf\n",totdel/((double)(N)));
     }
     
   }
 
   fclose(fpw1);
-  fclose(fpw2);
   return;
 
 }
 
+/**
+ * Computes the persistence statistics.
+ */
 void compute_persistence_stat() {
 
   int i,p_len,time_series_len;
@@ -149,17 +163,21 @@ void compute_persistence_stat() {
   FILE *fpr,*fpw,*fpw1;
 
   time_series_len = time_depth-throw_away+1;
-  sprintf(name,"%d/out",num);
+
+  // open the time-series file
+  sprintf(name,"out");
   fpr = fopen(name,"r");
-  sprintf(name,"%d/persistence",num);
+
+  // open files to store the persistence and avalanche size statistics
+  sprintf(name,"persistence");
   fpw = fopen(name,"w");
-  sprintf(name,"%d/avalanche",num);
+  sprintf(name,"avalanche");
   fpw1 = fopen(name,"w");
 
   i = 0;
   fscanf(fpr,"%le",&p);
 
-  // find the first negative mean delay
+  // find the first negative value in the time-series
   while (p > 0 && i < time_series_len) {
     ++i;
     fscanf(fpr,"%le",&p);
@@ -171,13 +189,21 @@ void compute_persistence_stat() {
     fscanf(fpr,"%le",&p);
   }
 
+  // the previous makes sure that i represents the time-step for which the first avalanche starts
+  // (because it's possible we had avalanches before the burn-in period in the time series generation)
+
+
+  // we parse the entire time-series
   while (i < time_series_len) {
 
     // check how long the positive value holds on
     p_len = 1;
     p_val = p;
 
+
     // find the first negative value in the series
+    // the time-series will be positive for p_val consecutive steps
+    // the size of the avalanche is the sum of all values p, which are the values of the total delay which have total_delay > B
     while (p > 0 && i < time_series_len) {
       ++i;
       fscanf(fpr,"%le",&p);
@@ -187,7 +213,12 @@ void compute_persistence_stat() {
       }
     }
 
-    // unpdate the avalanche count and the persistence length of the avalnche
+    // at this point p_val has the size of the avalanche
+    // p_len has the persistence time
+
+
+    // update the avalanche count and the persistence length of the avalnche
+    // this is done by filling in the linked list for persistence (See the struct defined at the beginning of the file)
     if (i < time_series_len) {
       ++count;
       if (count == 1) {
@@ -206,12 +237,14 @@ void compute_persistence_stat() {
       }
     }
       
-    // find the next positive value in the series
+    // find the time-step corresponding to the beginning of the next avalanche
     while (p < 0 && i < time_series_len) {
       ++i;
       fscanf(fpr,"%le",&p);
     }
 
+
+    // save the persistence and avalanche size statistics
     fprintf(fpw,"%d\t%d\n",count,p_len);
     fprintf(fpw1,"%12.9lf\n",p_val);
     
@@ -221,11 +254,16 @@ void compute_persistence_stat() {
   fclose(fpw);
   fclose(fpw1);
 
-  //persistence_stat(count);
-
   return;
 }
 
+
+
+/**
+ * Calculates lagged autocorrelation function between time-series x and y.
+  * in this case, time-series x is the time-series of the total delay of the system
+  * while y is the time-series of the total delay of the system with a lag of lag time-steps
+ */
 void calc_corr() {
 
   int i,lag,time_series_len;
@@ -235,16 +273,24 @@ void calc_corr() {
   FILE *fpr1,*fpr2,*fpw;
 
   time_series_len = time_depth-throw_away+1;
-  sprintf(name,"%d/correlations",num);
+  // open the file where we will store the autocorrelation function
+  sprintf(name,"correlations");
   fpw = fopen(name,"w");
   fprintf(fpw,"%d\t%12.9lf\n",0,1.0);  
  
-  for (lag = 1; lag < 42185 /* time_series_len */; lag+=20) {
-    
-    sprintf(name,"%d/out",num);
+
+  // iterate over lag values, jumping by 20 time-steps
+  // max lag is 50000 time-steps (arbitrary)
+  for (lag = 1; lag < 50000; lag+=20) {
+    // read the time-series files
+    sprintf(name,"out");
     fpr1 = fopen(name,"r");
     fpr2 = fopen(name,"r");
 
+
+    // compute standard Pearson correlation function
+    // computes \sum_i y_i * y_{i+lag} / \sum_i y_i^2
+    // where y_i = x_i - \bar{x} 
     fscanf(fpr1,"%le",&x);
     for (i = 0; i <= lag; i++)
       fscanf(fpr2,"%le",&y);
@@ -265,39 +311,16 @@ void calc_corr() {
     xsqmean = sumxsq/((double)(count));
     ysqmean = sumysq/((double)(count));
 
+    // compute the correlation
     corr = (xymean-xmean*ymean)/(sqrt(xsqmean-xmean*xmean)*sqrt(ysqmean-ymean*ymean));
 
+    // save the correlation to the file on a line with tab separated values
+    // first value is the lag, second value is the correlation
     fprintf(fpw,"%d\t%12.9lf\n",lag,corr);
     
   }
     
   fclose(fpw);
 
-  return;
-}
-
-void persistence_stat(int n) {
-
-  int i;
-  double a,mean=0.0,meansq=0.0;
-  char name[100];
-  FILE *fpw;
-  
-  sprintf(name,"%d/persistence",num);
-  fpw = fopen(name,"a");
-
-  tmp_ptr = init_ptr;
-  for (i = 0; i < n; i++) {
-    a = (double)(tmp_ptr->val);
-    mean += a;
-    meansq += a*a;
-    tmp_ptr = tmp_ptr->next;
-  }
-  mean /= ((double)(n));
-  meansq /= ((double)(n));
-
-  fprintf(fpw,"%12.9lf\t%12.9lf\n",mean,sqrt(meansq-mean*mean));
-  fclose(fpw);
-  
   return;
 }
