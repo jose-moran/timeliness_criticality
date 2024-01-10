@@ -52,6 +52,8 @@ Once we have data on probability distributions (such as `avalanches` and `persis
 awk '{obin=bin;bin=int(20*log($1));a[bin]+=$2;n[bin]++; if (obin!=bin) print exp(bin*0.05),a[bin]/n[bin];}' < datafile > datafile.smoothed
 ```
 
+note that the `20` in the `awk` script is the number of bins per decade, and the `0.05` is the bin width in the original data. These scale factors can be freely chosen, but their product must equal `1`.
+
 
 
 ## Python code (used for temporal networks)
